@@ -317,6 +317,10 @@ typedef struct pjsua_acc
 
     pj_timer_entry   ka_timer;      /**< Keep-alive timer for UDP.      */
     pjsip_transport *ka_transport;  /**< Transport for keep-alive.      */
+    pj_bool_t        server_affinity;/**< Keep requests on the
+                                          registration's connection.     */
+    pjsip_transport *affinity_tp;   /**< That connection (TCP/TLS), from
+                                          the last successful REGISTER.  */
     pj_sockaddr      ka_target;     /**< Destination address for K-A    */
     unsigned         ka_target_len; /**< Length of ka_target.           */
 

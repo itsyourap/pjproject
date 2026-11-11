@@ -34,6 +34,7 @@ enum
 static int get_ip_addr_ver(const pj_str_t *host);
 static void schedule_reregistration(pjsua_acc *acc);
 static void keep_alive_timer_cb(pj_timer_heap_t *th, pj_timer_entry *te);
+static void update_server_affinity(pjsua_acc *acc, pjsip_rx_data *rdata);
 
 /* Bridge: maps low-level auth challenge -> pjsua on_auth_challenge */
 pj_bool_t pjsua_auth_on_challenge(
@@ -822,6 +823,8 @@ PJ_DEF(pj_status_t) pjsua_acc_del2(pjsua_acc_id acc_id,
         pjsip_transport_dec_ref(acc->ka_transport);
         acc->ka_transport = NULL;
     }
+    update_server_affinity(acc, NULL);
+    acc->server_affinity = PJ_FALSE;
 
     /* Cancel any re-registration timer */
     if (acc->auto_rereg.timer.id) {
@@ -2400,6 +2403,54 @@ on_return:
 }
 
 
+/* Remember the connection of a successful registration (or forget it,
+ * with NULL rdata) for pjsua_acc_set_server_affinity().
+ */
+static void update_server_affinity(pjsua_acc *acc, pjsip_rx_data *rdata)
+{
+    pjsip_transport *tp = NULL;
+
+    if (acc->server_affinity && rdata && rdata->tp_info.transport &&
+        (rdata->tp_info.transport->flag & PJSIP_TRANSPORT_RELIABLE))
+    {
+        tp = rdata->tp_info.transport;
+    }
+    if (tp == acc->affinity_tp)
+        return;
+    if (acc->affinity_tp)
+        pjsip_transport_dec_ref(acc->affinity_tp);
+    acc->affinity_tp = tp;
+    if (tp) {
+        pjsip_transport_add_ref(tp);
+        PJ_LOG(4,(THIS_FILE, "Acc %d: requests stay on %s connection to %.*s:%d",
+                  acc->index, tp->type_name,
+                  (int)tp->remote_name.host.slen, tp->remote_name.host.ptr,
+                  tp->remote_name.port));
+    }
+}
+
+
+PJ_DEF(pj_status_t) pjsua_acc_set_server_affinity(pjsua_acc_id acc_id,
+                                                  pj_bool_t enabled)
+{
+    pjsua_acc *acc;
+
+    PJ_ASSERT_RETURN(acc_id>=0 && acc_id<(int)PJ_ARRAY_SIZE(pjsua_var.acc),
+                     PJ_EINVAL);
+    PJSUA_LOCK();
+    acc = &pjsua_var.acc[acc_id];
+    if (!acc->valid) {
+        PJSUA_UNLOCK();
+        return PJ_EINVALIDOP;
+    }
+    acc->server_affinity = enabled;
+    if (!enabled)
+        update_server_affinity(acc, NULL);
+    PJSUA_UNLOCK();
+    return PJ_SUCCESS;
+}
+
+
 /* Update keep-alive for the account */
 static void update_keep_alive(pjsua_acc *acc, pj_bool_t start,
                               struct pjsip_regc_cbparam *param)
@@ -2639,6 +2690,7 @@ static void regc_cb(struct pjsip_regc_cbparam *param)
         if (status == PJ_SUCCESS) {
             /* Stop keep-alive timer if any. */
             update_keep_alive(acc, PJ_FALSE, NULL);
+            update_server_affinity(acc, NULL);
         } else {
             /* Another registration is in progress. */
             pj_assert(status == PJ_EBUSY);
@@ -2657,6 +2709,7 @@ static void regc_cb(struct pjsip_regc_cbparam *param)
 
         /* Stop keep-alive timer if any. */
         update_keep_alive(acc, PJ_FALSE, NULL);
+        update_server_affinity(acc, NULL);
     } else if (PJSIP_IS_STATUS_IN_CLASS(param->code, 200)) {
 
         /* Update auto registration flag */
@@ -2670,6 +2723,7 @@ static void regc_cb(struct pjsip_regc_cbparam *param)
 
             /* Stop keep-alive timer if any. */
             update_keep_alive(acc, PJ_FALSE, NULL);
+            update_server_affinity(acc, NULL);
 
             PJ_LOG(3,(THIS_FILE, "%s: unregistration success",
                       pjsua_var.acc[acc->index].cfg.id.ptr));
@@ -2718,6 +2772,9 @@ static void regc_cb(struct pjsip_regc_cbparam *param)
 #endif
             /* Start keep-alive timer if necessary. */
             update_keep_alive(acc, PJ_TRUE, param);
+
+            /* Keep requests on this connection, if asked to. */
+            update_server_affinity(acc, param->rdata);
 
             /* Send initial PUBLISH if it is enabled */
             if (acc->cfg.publish_enabled && acc->publish_sess==NULL)
@@ -3815,6 +3872,19 @@ pj_status_t pjsua_acc_get_uac_addr(pjsua_acc_id acc_id,
 
     /* Init transport selector. */
     pjsua_init_tpselector(acc_id, &tp_sel);
+
+    /* Server affinity only picks the connection requests go over; the
+     * Contact stays the one the account registered with.
+     */
+    if (tp_sel.type == PJSIP_TPSELECTOR_TRANSPORT &&
+        tp_sel.u.transport == acc->affinity_tp)
+    {
+        pj_bzero(&tp_sel, sizeof(tp_sel));
+        if (acc->cfg.ipv6_sip_use != PJSUA_IPV6_ENABLED_NO_PREFERENCE) {
+            tp_sel.type = PJSIP_TPSELECTOR_IP_VER;
+            tp_sel.u.ip_ver = (pjsip_tpselector_ip_ver)acc->cfg.ipv6_sip_use;
+        }
+    }
 
     /* Get local address suitable to send request from */
     pjsip_tpmgr_fla2_param_default(&tfla2_prm);

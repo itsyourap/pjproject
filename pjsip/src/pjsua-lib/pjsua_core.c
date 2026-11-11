@@ -3408,6 +3408,12 @@ void pjsua_init_tpselector(pjsua_acc_id acc_id,
             sel->type = PJSIP_TPSELECTOR_LISTENER;
             sel->u.listener = tpdata->data.factory;
         }
+    } else if (acc->affinity_tp && !acc->affinity_tp->is_shutdown &&
+               !acc->affinity_tp->is_destroying)
+    {
+        /* Server affinity: the registration's connection. */
+        sel->type = PJSIP_TPSELECTOR_TRANSPORT;
+        sel->u.transport = acc->affinity_tp;
     } else if (acc->cfg.ipv6_sip_use != PJSUA_IPV6_ENABLED_NO_PREFERENCE) {
         sel->type = PJSIP_TPSELECTOR_IP_VER;
         sel->u.ip_ver = (pjsip_tpselector_ip_ver)acc->cfg.ipv6_sip_use;

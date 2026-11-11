@@ -5275,6 +5275,27 @@ PJ_DECL(void) pjsua_acc_del_param_default(pjsua_acc_del_param *prm);
 
 
 /**
+ * Keep the account's requests on the connection its registration used.
+ *
+ * With this on, after a REGISTER over TCP or TLS succeeds, new requests of
+ * the account (calls, messages, subscriptions) are sent over that same
+ * connection instead of resolving the server again, which may pick another
+ * of its addresses. Servers such as IMS P-CSCFs only accept requests on the
+ * flow the device registered on. When the registration fails or the
+ * connection closes, requests go back to the usual transport selection.
+ *
+ * Has no effect on UDP, or on an account bound to a transport.
+ *
+ * @param acc_id        The account ID.
+ * @param enabled       PJ_TRUE to keep requests on the connection.
+ *
+ * @return              PJ_SUCCESS on success, or the appropriate error code.
+ */
+PJ_DECL(pj_status_t) pjsua_acc_set_server_affinity(pjsua_acc_id acc_id,
+                                                   pj_bool_t enabled);
+
+
+/**
  * Delete an account. This will unregister the account from the SIP server,
  * if necessary, and terminate server side presence subscriptions associated
  * with this account.
