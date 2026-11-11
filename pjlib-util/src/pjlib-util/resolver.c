@@ -726,6 +726,30 @@ static pj_status_t transmit_query(pj_dns_resolver *resolver,
         return status;
     }
 
+#if PJ_DNS_RESOLVER_MAX_UDP_SIZE > 512
+    /* Advertise the receive buffer with an EDNS0 OPT pseudo-RR (RFC 6891).
+     * Without it a server must keep the answer within 512 bytes, and some
+     * answer a larger one (e.g. a dozen AAAA records) with an empty,
+     * truncated response, which this resolver can't retry over TCP.
+     */
+    if (pkt_size + 11 <= sizeof(resolver->udp_tx_pkt)) {
+        pj_uint8_t *opt = resolver->udp_tx_pkt + pkt_size;
+
+        opt[0] = 0;                                 /* Owner: root      */
+        opt[1] = 0;                                 /* Type: OPT        */
+        opt[2] = PJ_DNS_TYPE_OPT;
+        opt[3] = (pj_uint8_t)((UDPSZ >> 8) & 0xFF); /* Class: UDP size  */
+        opt[4] = (pj_uint8_t)(UDPSZ & 0xFF);
+        opt[5] = opt[6] = opt[7] = opt[8] = 0;      /* Ext-RCODE, flags */
+        opt[9] = opt[10] = 0;                       /* RDLENGTH         */
+        pkt_size += 11;
+
+        /* ARCOUNT = 1 */
+        resolver->udp_tx_pkt[10] = 0;
+        resolver->udp_tx_pkt[11] = 1;
+    }
+#endif
+
     /* Get current time. */
     pj_gettimeofday(&now);
 

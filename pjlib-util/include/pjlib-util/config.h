@@ -176,7 +176,9 @@
 
 /**
  * Maximum size of UDP packet. RFC 1035 states that maximum size of
- * DNS packet carried over UDP is 512 bytes.
+ * DNS packet carried over UDP is 512 bytes. A larger value is advertised
+ * to the name servers with an EDNS0 OPT record (RFC 6891) in each query,
+ * so they can send answers up to this size (1232 is the common choice).
  *
  * Default: 512 byes
  */
